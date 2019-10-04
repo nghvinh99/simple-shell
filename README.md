@@ -11,4 +11,4 @@ simulate ubuntu terminal using C
 
 ## Purpose
 This is a product for **education purpose** only.     
-FIT HCMUS -Operating System Course-
+FIT HCMUS -*Operating System Course*-

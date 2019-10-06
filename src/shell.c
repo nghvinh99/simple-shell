@@ -46,22 +46,6 @@ void child_process(char *args[], int *argc) {
 	
 	execvp(args[0],args);
 }
-/*
-	//check redirecting input
-	if (strcmp(args[*argc-3], "<")==0) {
-		strcpy(fileName,args[*argc-2]);
-		free(args[*argc-1]);
-		free(args[*argc-2]);
-		*argc-=2;
-		args[*argc-1]=NULL;
-		*fd=open(fileName, O_RDONLY);
-		if (*fd==-1) {
-			printf("ERROR open file!\n");
-			return;
-		}
-		dup2(*fd, 0);
-		execvp(args[0],args);
-	}*/
 
 //parent process action
 void parent_process(char *args[], int waitFor) {
@@ -75,22 +59,17 @@ void parent_process(char *args[], int waitFor) {
 }
 
 //get file name and reformat command
-void redirect_file_info(char *args[], int *argc, char **fileName) {
-	printf("I got in again!\n");
-	for (int i=0;i<*argc;i++) {
-		printf("args[%i]=%s\n",i,args[i]);
-	}
-	printf("%i\n",*argc-2);
-	printf("file:%s\n",*fileName);
+void file_info(char *args[], int *argc, char **fileName) {
+	//get filename
 	*fileName=malloc(sizeof(char)*strlen(args[*argc-2]));
 	strcpy(*fileName, args[*argc-2]);
-	printf("file:%s\n",*fileName);
+
+	//free allocated mem
 	free(args[*argc-1]);
 	free(args[*argc-2]);
 	free(args[*argc-3]);
 	*argc-=2;
 	args[*argc-1]=NULL;
-	printf("I got in again!\n");
 }
 
 //execute parsed command
@@ -106,25 +85,44 @@ void command_exec(char *args[], int *argc, int waitFor) {
 			printf("Error creating child process!\n");
 			break;
 		case 0: //return to child process
-			//redirect input case
-			printf("argc:%i\n",*argc);
 			if (*argc>=4) {
+				//redirect input case
 				if (strcmp(args[*argc-3], ">")==0) {
 					file=1;
-					printf("I got in!\n");
+
 					//get file name and reformat command
-					redirect_file_info(args, argc, &fileName);
-					printf("argc:%i\n",*argc);
+					file_info(args, argc, &fileName);
+
 					//open/create file
-					printf("file:%s\n",fileName);
+
 					fd=open(fileName, O_WRONLY|O_TRUNC|O_CREAT, S_IRUSR|S_IRGRP|S_IWGRP|S_IWUSR);
+
 					if (fd<0) {
 						printf("ERROR open file!\n");
 						return;
 					}
-					printf("fd:%i\n",fd);
+
 					//make copy terminal to file
 					dup2(fd, 1);
+				}
+				else
+				//redirect output case
+				if (strcmp(args[*argc-3], "<")==0) {
+					file=1;
+
+					//get file name and reformat command
+					file_info(args, argc, &fileName);
+
+					//open/create file
+					fd=open(fileName, O_RDONLY);
+
+					if (fd<0) {
+						printf("ERROR open file!\n");
+						return;
+					}
+
+					//make copy terminal to file
+					dup2(fd, 0);
 				}
 			}
 			child_process(args, argc);
@@ -160,12 +158,15 @@ int main() {
 		scanf("%[^\n]s", command);//read input buffer
 
 		waitFor=1;//set default: parent always wait for termination
+
+		//exit case
 		if (strcmp(command, "exit")==0) {
 			printf("<=-----------exit triggered!-----------=>\n");
 			run=0;
 			kill(0,SIGKILL);
 		}
 
+		//history case
 		else {
 			if (strcmp(command, "!!")==0) {
 				if (strcmp(history_buff, "")==0)
@@ -177,6 +178,7 @@ int main() {
 				}
 			}
 
+			//execute command case
 			else {
 				strcpy(history_buff, command);
 				parse_command(command, args, &argc, &waitFor);

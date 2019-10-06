@@ -54,38 +54,40 @@ void parent_process(int waitFor) {
 
 //child process action
 void child_process(char *args[], int *argc, char *pipeCmd) {
-	pid_t pid;
-	char *s_args[MAX_LINE/2+1]; //command argument
-	int s_argc; //argument element count
-	int waitFor;
-	int pipefd[2];
+	pid_t pid;//process ID
+	char *s_args[MAX_LINE/2+1];//command argument
+	int s_argc;//argument element count
+	int waitFor;//parent wait flag
+	int pipefd[2];//pipe inp/out descriptor
 
-	if (pipeCmd!=NULL) {
-		if (pipe(pipefd) == -1) {
+	if (pipeCmd!=NULL) {//pipe case process
+		if (pipe(pipefd) == -1) {//check piping error
 			printf("Pipe Error!\n");
 			return;
 		}
-		switch (pid=fork()) {
-			case -1:
+
+		switch (pid=fork()) {//make child process
+			case -1://fork error
 				printf("Error creating child process!\n");
 				break;
-			case 0:
-				close(pipefd[1]);
-				dup2(pipefd[0], 0);
+			case 0://child process
+				close(pipefd[1]);//close unused write end
+				dup2(pipefd[0], 0);//duplicate pipe read end with terminal input
 				parse_command(pipeCmd, s_args, &s_argc, &waitFor);
-				child_process(s_args, &s_argc, NULL);
-				close(pipefd[0]);
+				child_process(s_args, &s_argc, NULL);//exec cmd
+				close(pipefd[0]);//close read end
 				break;
-			default:
-				close(pipefd[0]);
-				dup2(pipefd[1], 1);
-				child_process(args, argc, NULL);
-				parent_process(waitFor);
-				close(pipefd[1]);
+			default://caller process
+				close(pipefd[0]);//close unused read end
+				dup2(pipefd[1], 1);//duplicate pipe write end with terminal output
+				child_process(args, argc, NULL);//exec cmd
+				parent_process(waitFor);//wait for child process to terminate
+				close(pipefd[1]);//close write end
 		}
-		printf("WAIT: %i",waitFor);
+		printf("Press any key to continue...\n");
+		getchar();
 	}
-	else
+	else//exec cmd normally without piping
 		execvp(args[0],args);
 }
 
@@ -105,9 +107,9 @@ void file_info(char *args[], int *argc, char **fileName) {
 
 //execute parsed command
 void command_exec(char *args[], int *argc, int waitFor) {
-	pid_t pid; //process ID
-	int fd;
-	char *fileName;
+	pid_t pid;//process ID
+	int fd;//file descriptor
+	char *fileName;//file name string
 	int file=0;//redirecting flag (0:no redirecting)
 
 	//create child process using fork()
@@ -170,10 +172,10 @@ void clear_args(char *args[]) {
 }
 
 int main() {
-	int run=1; //process running control
-	char *args[MAX_LINE/2+1]; //command argument
-	int argc; //argument element count
-	char history_buff[MAX_LINE]="";//history command buffer
+	int run=1;//process running control
+	char *args[MAX_LINE/2+1];//command argument
+	int argc;//argument element count
+	char historyCmd[MAX_LINE]="";//history command buffer
 	char command[MAX_LINE];//input commnad buffer
 	int waitFor;//control parent to wait for child's termination (0: no waiting)
 	pid_t pid; //process ID
@@ -181,53 +183,58 @@ int main() {
 	while (run==1) {
 		printf("\nosh> ");
 		scanf("%[^\n]s", command);//read input buffer
-		char *subCmd=strchr(command, '|');//check pipe case
 		waitFor=1;//set default: parent always wait for termination
+
+		//history case
+		if (strcmp(command, "!!")==0) {
+			if (strcmp(historyCmd, "")==0)
+			printf("No commands in history.\n");
+			else {
+				printf("Previous command: %s\n", historyCmd);
+				strcpy(command, historyCmd);
+			}
+		}
+
+		char *subCmd=strchr(command, '|');//check pipe case
+
 		//exit case
 		if (strcmp(command, "exit")==0) {
 			printf("<=-----------exit triggered!-----------=>\n");
 			run=0;
 			kill(0,SIGKILL);
 		}
-
-		//history case
+		
 		else {
-			if (strcmp(command, "!!")==0) {
-				if (strcmp(history_buff, "")==0)
-				printf("No commands in history.\n");
-				else {
-					parse_command(history_buff, args, &argc, &waitFor);
-					printf("Previous command: %s\n", history_buff);
-					command_exec(args, &argc, waitFor);
+			//pipe case
+			if (subCmd!=NULL) {
+				char *cmd;
+
+				strcpy(historyCmd, command);//update history cmd
+				cmd=strtok(command, "|");//get 1st pipe cmd
+				subCmd+=2;//format 2nd pipe cmd
+				parse_command(cmd, args, &argc, &waitFor);
+				switch (pid=fork()) {
+					case -1:
+						printf("Error creating child process!\n");
+						break;
+					case 0:
+						child_process(args, &argc, subCmd);//exec 1st cmd with subcmd pipe case
+						break;
+					default:
+						parent_process(waitFor);
 				}
+				printf("Press any key to continue...\n");
+				getchar();
 			}
+
+			//execute command case
 			else {
-				//pipe case
-				strcpy(history_buff, command);
-				if (subCmd!=NULL) {
-					char *cmd;
-					cmd=strtok(command, "|");
-					subCmd+=2;
-					parse_command(cmd, args, &argc, &waitFor);
-					switch (pid=fork()) {
-						case -1:
-							printf("Error creating child process!\n");
-							break;
-						case 0:
-							child_process(args, &argc, subCmd);
-							break;
-						default:
-							parent_process(waitFor);
-					}
-				}
-				//execute command case
-				else {
-					strcpy(history_buff, command);
-					parse_command(command, args, &argc, &waitFor);
-					command_exec(args, &argc, waitFor);
-				}
+				strcpy(historyCmd, command);
+				parse_command(command, args, &argc, &waitFor);
+				command_exec(args, &argc, waitFor);
 			}
 		}
+		strcpy(command, "");
 		clear_args(args);
 		getchar();
 	}

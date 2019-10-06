@@ -41,14 +41,8 @@ void parse_command(char command[], char *args[], int *argc, int *waitFor) {
 	*argc=i;
 }
 
-//child process action
-void child_process(char *args[], int *argc) {
-	
-	execvp(args[0],args);
-}
-
 //parent process action
-void parent_process(char *args[], int waitFor) {
+void parent_process(int waitFor) {
 
 	//wait for child process to exec
 	if (waitFor==1) {
@@ -56,6 +50,43 @@ void parent_process(char *args[], int waitFor) {
 		printf("--------------------------------\n");
 		printf("Child process terminated!\n");
 	}
+}
+
+//child process action
+void child_process(char *args[], int *argc, char *pipeCmd) {
+	pid_t pid;
+	char *s_args[MAX_LINE/2+1]; //command argument
+	int s_argc; //argument element count
+	int waitFor;
+	int pipefd[2];
+
+	if (pipeCmd!=NULL) {
+		if (pipe(pipefd) == -1) {
+			printf("Pipe Error!\n");
+			return;
+		}
+		switch (pid=fork()) {
+			case -1:
+				printf("Error creating child process!\n");
+				break;
+			case 0:
+				close(pipefd[1]);
+				dup2(pipefd[0], 0);
+				parse_command(pipeCmd, s_args, &s_argc, &waitFor);
+				child_process(s_args, &s_argc, NULL);
+				close(pipefd[0]);
+				break;
+			default:
+				close(pipefd[0]);
+				dup2(pipefd[1], 1);
+				child_process(args, argc, NULL);
+				parent_process(waitFor);
+				close(pipefd[1]);
+		}
+		printf("WAIT: %i",waitFor);
+	}
+	else
+		execvp(args[0],args);
 }
 
 //get file name and reformat command
@@ -77,7 +108,7 @@ void command_exec(char *args[], int *argc, int waitFor) {
 	pid_t pid; //process ID
 	int fd;
 	char *fileName;
-	int file=0;
+	int file=0;//redirecting flag (0:no redirecting)
 
 	//create child process using fork()
 	switch (pid=fork()) { 
@@ -86,49 +117,42 @@ void command_exec(char *args[], int *argc, int waitFor) {
 			break;
 		case 0: //return to child process
 			if (*argc>=4) {
-				//redirect input case
+				//redirect output case
 				if (strcmp(args[*argc-3], ">")==0) {
+					//turn flag on
 					file=1;
-
 					//get file name and reformat command
 					file_info(args, argc, &fileName);
-
 					//open/create file
-
 					fd=open(fileName, O_WRONLY|O_TRUNC|O_CREAT, S_IRUSR|S_IRGRP|S_IWGRP|S_IWUSR);
-
 					if (fd<0) {
 						printf("ERROR open file!\n");
 						return;
 					}
-
 					//make copy terminal to file
 					dup2(fd, 1);
 				}
 				else
-				//redirect output case
+				//redirect input case
 				if (strcmp(args[*argc-3], "<")==0) {
+					//turn flag on
 					file=1;
-
 					//get file name and reformat command
 					file_info(args, argc, &fileName);
-
 					//open/create file
 					fd=open(fileName, O_RDONLY);
-
 					if (fd<0) {
 						printf("ERROR open file!\n");
 						return;
 					}
-
 					//make copy terminal to file
 					dup2(fd, 0);
 				}
 			}
-			child_process(args, argc);
+			child_process(args, argc, NULL);
 			break;
 		default: //return to parent/caller process
-			parent_process(args, waitFor);
+			parent_process(waitFor);
 	}
 	if (file==1) {
 		close(fd);
@@ -151,14 +175,14 @@ int main() {
 	int argc; //argument element count
 	char history_buff[MAX_LINE]="";//history command buffer
 	char command[MAX_LINE];//input commnad buffer
-	int waitFor;//control parent to wait for child's termination
+	int waitFor;//control parent to wait for child's termination (0: no waiting)
+	pid_t pid; //process ID
 
 	while (run==1) {
 		printf("\nosh> ");
 		scanf("%[^\n]s", command);//read input buffer
-
+		char *subCmd=strchr(command, '|');//check pipe case
 		waitFor=1;//set default: parent always wait for termination
-
 		//exit case
 		if (strcmp(command, "exit")==0) {
 			printf("<=-----------exit triggered!-----------=>\n");
@@ -177,14 +201,34 @@ int main() {
 					command_exec(args, &argc, waitFor);
 				}
 			}
-
-			//execute command case
 			else {
+				//pipe case
 				strcpy(history_buff, command);
-				parse_command(command, args, &argc, &waitFor);
-				command_exec(args, &argc, waitFor);
+				if (subCmd!=NULL) {
+					char *cmd;
+					cmd=strtok(command, "|");
+					subCmd+=2;
+					parse_command(cmd, args, &argc, &waitFor);
+					switch (pid=fork()) {
+						case -1:
+							printf("Error creating child process!\n");
+							break;
+						case 0:
+							child_process(args, &argc, subCmd);
+							break;
+						default:
+							parent_process(waitFor);
+					}
+				}
+				//execute command case
+				else {
+					strcpy(history_buff, command);
+					parse_command(command, args, &argc, &waitFor);
+					command_exec(args, &argc, waitFor);
+				}
 			}
 		}
+		clear_args(args);
 		getchar();
 	}
 	clear_args(args);

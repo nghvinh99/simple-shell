@@ -47,14 +47,13 @@ void parent_process(int waitFor) {
 	//wait for child process to exec
 	if (waitFor==1) {
 		wait(NULL);
-		printf("--------------------------------\n");
-		printf("Child process terminated!\n");
 	}
 }
 
 //child process action
 void child_process(char *args[], int *argc, char *pipeCmd) {
-	pid_t pid;//process ID
+	pid_t pid, wpid; //process ID
+	int status=0;
 	char *s_args[MAX_LINE/2+1];//command argument
 	int s_argc;//argument element count
 	int waitFor;//parent wait flag
@@ -84,8 +83,6 @@ void child_process(char *args[], int *argc, char *pipeCmd) {
 				parent_process(waitFor);//wait for child process to terminate
 				close(pipefd[1]);//close write end
 		}
-		printf("Press any key to continue...\n");
-		getchar();
 	}
 	else//exec cmd normally without piping
 		execvp(args[0],args);
@@ -178,7 +175,8 @@ int main() {
 	char historyCmd[MAX_LINE]="";//history command buffer
 	char command[MAX_LINE];//input commnad buffer
 	int waitFor;//control parent to wait for child's termination (0: no waiting)
-	pid_t pid; //process ID
+	pid_t pid, wpid; //process ID
+	int status=0;
 
 	while (run==1) {
 		printf("\nosh> ");
@@ -199,7 +197,6 @@ int main() {
 
 		//exit case
 		if (strcmp(command, "exit")==0) {
-			printf("<=-----------exit triggered!-----------=>\n");
 			run=0;
 			kill(0,SIGKILL);
 		}
@@ -208,8 +205,8 @@ int main() {
 			//pipe case
 			if (subCmd!=NULL) {
 				char *cmd;
-
-				strcpy(historyCmd, command);//update history cmd
+				if (strcmp(command, "")!=0)
+					strcpy(historyCmd, command);//update history cmd
 				cmd=strtok(command, "|");//get 1st pipe cmd
 				subCmd+=2;//format 2nd pipe cmd
 				parse_command(cmd, args, &argc, &waitFor);
@@ -223,13 +220,12 @@ int main() {
 					default:
 						parent_process(waitFor);
 				}
-				printf("Press any key to continue...\n");
-				getchar();
 			}
 
 			//execute command case
 			else {
-				strcpy(historyCmd, command);
+				if (strcmp(command, "")!=0)
+					strcpy(historyCmd, command);//update history cmd
 				parse_command(command, args, &argc, &waitFor);
 				command_exec(args, &argc, waitFor);
 			}
@@ -237,6 +233,7 @@ int main() {
 		strcpy(command, "");
 		clear_args(args);
 		getchar();
+		usleep(100000);//delay process for children's terminations
 	}
 	clear_args(args);
 	return 0;
